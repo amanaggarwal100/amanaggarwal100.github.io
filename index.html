@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Indigenous Violence &amp; Trust Paper</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #525659; font-family: system-ui, sans-serif; }
+    html, body { margin: 0; background: #525659; font-family: system-ui, sans-serif; }
     .bar {
-      display: flex; justify-content: space-between; align-items: center;
+      position: sticky; top: 0; z-index: 1;
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center;
       padding: 8px 16px; background: #1f2328; color: #fff; font-size: 14px;
     }
     .bar a { color: #9ecbff; text-decoration: none; margin-left: 16px; }
     .bar a:hover { text-decoration: underline; }
-    object { display: block; width: 100%; height: calc(100% - 37px); border: 0; }
-    .fallback { padding: 32px 16px; color: #fff; text-align: center; }
-    .fallback a { color: #9ecbff; }
+    #pages { padding: 16px; }
+    .page {
+      position: relative; margin: 0 auto 16px; background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    }
+    .page canvas { display: block; width: 100%; height: 100%; }
+    #status { color: #fff; text-align: center; padding: 32px 16px; }
+    #status a { color: #9ecbff; }
   </style>
 </head>
 <body>
@@ -25,11 +31,82 @@
       <a href="Indigenous_Violence_Trust_Paper.pdf" download>Download PDF</a>
     </span>
   </div>
-  <object data="Indigenous_Violence_Trust_Paper.pdf" type="application/pdf">
-    <div class="fallback">
-      <p>Your browser can't display the PDF inline.</p>
-      <p><a href="Indigenous_Violence_Trust_Paper.pdf">Open the paper (PDF)</a></p>
-    </div>
-  </object>
+  <div id="status">Loading paper…</div>
+  <div id="pages"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    const PDF_URL = 'Indigenous_Violence_Trust_Paper.pdf';
+    const MAX_WIDTH = 1000;   // max on-screen width of any page, in CSS px
+    const status = document.getElementById('status');
+    const container = document.getElementById('pages');
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // Each page is sized to fit the available width on its own, so the
+    // landscape pages (Tables A5/A6) fit just like the portrait ones.
+    function sizePage(el) {
+      const avail = Math.min(container.clientWidth - 32, MAX_WIDTH);
+      el.style.width = avail + 'px';
+      el.style.height = (avail / el._ratio) + 'px';
+    }
+
+    async function renderPage(el) {
+      const page = el._page;
+      const cssWidth = el.clientWidth;
+      const base = page.getViewport({ scale: 1 });
+      const scale = (cssWidth / base.width) * (window.devicePixelRatio || 1);
+      if (el._renderedScale === scale) return;
+      el._renderedScale = scale;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      el.replaceChildren(canvas);
+    }
+
+    (async () => {
+      try {
+        const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+        const observer = new IntersectionObserver(entries => {
+          for (const e of entries) if (e.isIntersecting) renderPage(e.target);
+        }, { rootMargin: '800px 0px' });
+
+        const els = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const vp = page.getViewport({ scale: 1 });  // honours the page's rotation
+          const el = document.createElement('div');
+          el.className = 'page';
+          el._page = page;
+          el._ratio = vp.width / vp.height;
+          container.appendChild(el);
+          sizePage(el);
+          observer.observe(el);
+          els.push(el);
+        }
+        status.remove();
+
+        let t;
+        window.addEventListener('resize', () => {
+          clearTimeout(t);
+          t = setTimeout(() => {
+            els.forEach(sizePage);
+            els.forEach(el => {
+              const r = el.getBoundingClientRect();
+              if (r.bottom > -800 && r.top < innerHeight + 800) renderPage(el);
+              else el._renderedScale = null;
+            });
+          }, 200);
+        });
+      } catch (err) {
+        console.error(err);
+        status.innerHTML = 'Could not display the paper here. ' +
+          '<a href="' + PDF_URL + '">Open the PDF directly</a>.';
+      }
+    })();
+  </script>
 </body>
 </html>
